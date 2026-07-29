@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection, Result};
 use std::path::Path;
 use std::sync::Mutex;
+use chrono::Timelike;
 
 pub struct Database {
     conn: Mutex<Connection>,
@@ -93,6 +94,20 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_sessions_date ON active_sessions(date);
             ",
         )?;
+
+        // 首次初始化：塞一条空格键让键盘热力图不空洞
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM keystats", [], |r| r.get(0)
+        )?;
+        if count == 0 {
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let hour = chrono::Local::now().hour();
+            let _ = conn.execute(
+                "INSERT INTO keystats (date, hour, key_code, count) VALUES (?1, ?2, 32, 1)",
+                params![today, hour],
+            );
+        }
+
         Ok(())
     }
 
