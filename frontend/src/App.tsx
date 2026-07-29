@@ -166,9 +166,28 @@ function App() {
       ])
       setInfo(infoRes)
       setStats(statsRes)
+      setError(null)
+    } catch { setError('无法连接到 keytrace 服务') }
+  }, [dates])
 
+  const fetchKeys = useCallback(async () => {
+    try {
+      const keysRes = await fetch(`/api/stats/keys?from=${dates.from}&to=${dates.to}`)
+      if (keysRes.ok) {
+        const keysData = await keysRes.json() as { keys: { key_code: number; count: number }[] }
+        if (keysData.keys) {
+          const s: Record<number, number> = {}
+          for (const k of keysData.keys) s[k.key_code] = (s[k.key_code] || 0) + k.count
+          setKeyStats(s)
+        }
+      }
+    } catch { /* ignore */ }
+  }, [dates])
+
+  const fetchTrendAndMouse = useCallback(async () => {
+    try {
+      // 趋势图
       if (range === '7d' && metric === 'keys') {
-        // 7d+keys 沿用旧端点（带日期补全）
         const res = await fetch('/api/stats/daily?days=7')
         if (res.ok) {
           const data = await res.json() as { days: { date: string; count: number }[] }
@@ -184,22 +203,7 @@ function App() {
           setTrendType(t)
         }
       }
-
-      const keysRes = await fetch(`/api/stats/keys?from=${dates.from}&to=${dates.to}`)
-      if (keysRes.ok) {
-        const keysData = await keysRes.json() as { keys: { key_code: number; count: number }[] }
-        if (keysData.keys) {
-          const s: Record<number, number> = {}
-          for (const k of keysData.keys) s[k.key_code] = (s[k.key_code] || 0) + k.count
-          setKeyStats(s)
-        }
-      }
-      setError(null)
-    } catch { setError('无法连接到 keytrace 服务') }
-  }, [dates, range, metric])
-
-  const fetchMouseData = useCallback(async () => {
-    try {
+      // 鼠标热力图
       const fromTs = `${dates.from}T00:00:00`
       const toTs = `${dates.to}T23:59:59`
       const res = await fetch(`/api/mouse/moves?from=${fromTs}&to=${toTs}&limit=8000`)
@@ -208,13 +212,21 @@ function App() {
         if (data.moves) setMousePoints(data.moves.map(m => ({ x: m.x, y: m.y })))
       }
     } catch { /* ignore */ }
-  }, [dates])
+  }, [dates, range, metric])
 
+  // KPI + 键盘热力图：3 秒快速轮询
   useEffect(() => {
-    fetchAll(); fetchMouseData()
-    const timer = setInterval(() => { fetchAll(); fetchMouseData() }, 15000)
-    return () => clearInterval(timer)
-  }, [fetchAll, fetchMouseData])
+    fetchAll(); fetchKeys()
+    const t = setInterval(() => { fetchAll(); fetchKeys() }, 3000)
+    return () => clearInterval(t)
+  }, [fetchAll, fetchKeys])
+
+  // 趋势图 + 鼠标热力图：15 秒慢轮询
+  useEffect(() => {
+    fetchTrendAndMouse()
+    const t = setInterval(fetchTrendAndMouse, 15000)
+    return () => clearInterval(t)
+  }, [fetchTrendAndMouse])
 
   return (
     <div className="app-root">
