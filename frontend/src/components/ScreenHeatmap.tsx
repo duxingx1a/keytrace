@@ -6,10 +6,10 @@ interface ScreenInfo { left: number; top: number; right: number; bottom: number;
 interface Props { points: MousePoint[]; targetWidth: number }
 
 const JET: [number, number, number][] = [
-  [162, 191, 244], [162, 191, 244], [162, 191, 244], [162, 191, 244],
-  [184, 207, 248], [220, 228, 248],
-  [247, 245, 248],
-  [248, 220, 200], [248, 207, 184], [234, 154, 111], [204, 99, 61], [170, 50, 33],
+  [80, 140, 230], [110, 165, 240], [145, 192, 248], [185, 215, 250],
+  [220, 232, 250],
+  [248, 247, 248],
+  [248, 222, 195], [248, 204, 165], [238, 152, 105], [210, 90, 55], [170, 48, 32],
 ]
 
 function heatColor(t: number): [number, number, number] {
@@ -127,7 +127,7 @@ export function ScreenHeatmap({ points, targetWidth }: Props) {
       const px = ((i / 4) % pxW) / scale / dpr + minX
       const py = Math.floor(i / 4 / pxW) / scale / dpr + minY
       if (!screens.some(s => px >= s.left && px < s.right && py >= s.top && py < s.bottom)) {
-        d[i] = 162; d[i + 1] = 191; d[i + 2] = 244; d[i + 3] = 255
+        d[i] = 80; d[i + 1] = 140; d[i + 2] = 230; d[i + 3] = 255
         continue
       }
       const t = maxW > 0 ? Math.log1p(w) / Math.log1p(maxW) : 0

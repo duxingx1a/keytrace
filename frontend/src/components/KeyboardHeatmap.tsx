@@ -5,10 +5,10 @@ import { KEYBOARD_LAYOUT } from '../keyboard-layout'
 interface Props { keyStats: Record<number, number> }
 
 const JET: [number, number, number][] = [
-  [162, 191, 244], [162, 191, 244], [162, 191, 244], [162, 191, 244],
-  [184, 207, 248], [220, 228, 248],
-  [247, 245, 248],
-  [248, 220, 200], [248, 207, 184], [234, 154, 111], [204, 99, 61], [170, 50, 33],
+  [80, 140, 230], [110, 165, 240], [145, 192, 248], [185, 215, 250],
+  [220, 232, 250],
+  [248, 247, 248],
+  [248, 222, 195], [248, 204, 165], [238, 152, 105], [210, 90, 55], [170, 48, 32],
 ]
 
 function heatColor(t: number): [number, number, number] {
@@ -94,7 +94,7 @@ export function KeyboardHeatmap({ keyStats }: Props) {
     density.width = pxW
     density.height = pxH
     const dc = density.getContext('2d')!
-    dc.fillStyle = 'rgb(162,191,244)'
+    dc.fillStyle = 'rgb(80,140,230)'
     dc.fillRect(0, 0, pxW, pxH)
 
     for (const k of KEYBOARD_LAYOUT) {
