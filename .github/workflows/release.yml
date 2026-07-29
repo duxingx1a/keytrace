@@ -21,14 +21,19 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+      - name: Pack to zip
+        run: Compress-Archive -Path target/release/keytrace.exe -DestinationPath keytrace-v0.1.0.zip
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/keytrace.exe
+          files: keytrace-v0.1.0.zip
           body: |
-            双击 `keytrace.exe` 运行，系统托盘常驻，右键打开 Dashboard。
+            解压后双击 `keytrace.exe` 运行，系统托盘常驻，右键打开 Dashboard。
 
             数据库路径 `%LOCALAPPDATA%/KeyTrace/keytrace.db`，换位置不影响历史数据。
+
+            > 如 Windows Defender 拦截，点击「更多信息」→「仍要运行」
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
