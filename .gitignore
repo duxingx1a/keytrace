@@ -1,0 +1,39 @@
+# Rust
+target/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Data (database files)
+data/
+keytrace_data/
+
+# IDE
+.idea/
+.vscode/mcp.json
+.vscode/tasks.json
+*.swp
+.trash_safe/
+*.swo
+
+# Temp
+*.log
+*.bak
+.trash_safe/
+__pycache__/
+.vite/
+*.png
+screen_heatmap*
+tmp_payload.json
+check_db.py
+keyboard_desc.txt
+fix_app.py
+rewrite_app.py
+colormap.html
+mcp_image_viewer.py
+
+# OS
+Thumbs.db
+.DS_Store
+keytrack.db
