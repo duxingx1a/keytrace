@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Build frontend
         run: cd frontend && npm ci && npm run build
 
@@ -26,7 +28,7 @@ jobs:
           body: |
             双击 `keytrace.exe` 运行，系统托盘常驻，右键打开 Dashboard。
 
-            数据库自动创建在 exe 同级 `keytrace_data/`。
+            数据库路径 `%LOCALAPPDATA%/KeyTrace/keytrace.db`，换位置不影响历史数据。
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
