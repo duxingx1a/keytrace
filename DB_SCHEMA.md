@@ -1,6 +1,6 @@
 # 数据库设计
 
-> SQLite · WAL 模式 · 7 天自动清理 · 默认路径 `keytrace_data/keytrace.db`
+> SQLite · WAL 模式 · 7 天自动清理 · 默认路径 `%LOCALAPPDATA%/KeyTrace/keytrace.db`
 
 ## 设计理念
 

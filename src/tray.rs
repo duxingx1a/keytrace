@@ -10,12 +10,12 @@ use windows::Win32::UI::Shell::{
     NIIF_INFO, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-    DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW,
-    MF_STRING, PostQuitMessage, RegisterClassW, SetForegroundWindow,
-    TrackPopupMenu, TPM_BOTTOMALIGN, TPM_LEFTALIGN, CW_USEDEFAULT, IDI_APPLICATION,
-    WM_COMMAND, WM_DESTROY, WM_LBUTTONDBLCLK, WM_RBUTTONUP, WM_USER,
-    WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
+    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW,
+    MF_CHECKED, MF_STRING, MF_UNCHECKED, PostQuitMessage, RegisterClassW,
+    SetForegroundWindow, TrackPopupMenu, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
+    CW_USEDEFAULT, IDI_APPLICATION, WM_COMMAND, WM_DESTROY,
+    WM_LBUTTONDBLCLK, WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::ShellExecuteW;
@@ -25,6 +25,7 @@ const TRAY_ICON_ID: u32 = 1;
 const WM_TRAY: u32 = WM_USER + 100;
 const CMD_OPEN: usize = 1001;
 const CMD_QUIT: usize = 1002;
+const CMD_AUTOSTART: usize = 1003;
 
 // 全局 running 标志，供 wnd_proc 在退出时置 false
 static mut RUNNING_FLAG: Option<Arc<AtomicBool>> = None;
@@ -61,6 +62,9 @@ unsafe extern "system" fn wnd_proc(
                         windows::Win32::UI::WindowsAndMessaging::SW_SHOW,
                     );
                 }
+            } else if cmd == CMD_AUTOSTART {
+                let enabled = !is_autostart_enabled();
+                set_autostart(enabled);
             } else if cmd == CMD_QUIT {
                 cleanup_tray(hwnd);
                 unsafe {
@@ -134,16 +138,40 @@ fn create_tray(hwnd: HWND) {
     unsafe { let _ = Shell_NotifyIconW(NIM_ADD, &nid); }
 }
 
+const RUN_KEY: &str = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+fn is_autostart_enabled() -> bool {
+    let output = std::process::Command::new("reg")
+        .args(["query", RUN_KEY, "/v", "KeyTrace"])
+        .output();
+    output.map(|o| o.status.success()).unwrap_or(false)
+}
+
+fn set_autostart(enable: bool) {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let path = exe.to_string_lossy();
+    if enable {
+        let _ = std::process::Command::new("reg")
+            .args(["add", RUN_KEY, "/v", "KeyTrace", "/t", "REG_SZ", "/d", &path, "/f"])
+            .output();
+    } else {
+        let _ = std::process::Command::new("reg")
+            .args(["delete", RUN_KEY, "/v", "KeyTrace", "/f"])
+            .output();
+    }
+}
+
 fn handle_tray_menu(hwnd: HWND) {
     unsafe {
         let menu = CreatePopupMenu().unwrap_or_default();
         let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN, w!("打开 Dashboard"));
+        let auto_label = if is_autostart_enabled() { w!("✓ 开机自启动") } else { w!("  开机自启动") };
+        let _ = AppendMenuW(menu, MF_STRING, CMD_AUTOSTART, auto_label);
         let _ = AppendMenuW(menu, MF_STRING, CMD_QUIT, w!("退出"));
         let _ = SetForegroundWindow(hwnd);
 
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
-
         let _ = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hwnd, None);
         let _ = DestroyMenu(menu);
     }

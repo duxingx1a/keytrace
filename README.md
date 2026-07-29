@@ -17,7 +17,7 @@
 3. 右键托盘图标 → "打开 Dashboard"，浏览器自动打开 `http://localhost:50555`
 4. 数据每 15 秒自动刷新
 
-数据库自动创建在 exe 同级目录 `keytrace_data/keytrace.db`（SQLite + WAL 模式）。
+数据库自动创建在 `%LOCALAPPDATA%/KeyTrace/`，换位置不影响历史数据。
 
 ## 🔧 开发
 

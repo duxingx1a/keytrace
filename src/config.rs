@@ -1,5 +1,12 @@
 use std::path::PathBuf;
 
+fn app_data_dir() -> PathBuf {
+    std::env::var("LOCALAPPDATA")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map(|p| PathBuf::from(p).join("KeyTrace"))
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub port: u16,
@@ -12,7 +19,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             port: 50555,
-            db_path: PathBuf::from("keytrace_data/keytrace.db"),
+            db_path: app_data_dir().join("keytrace.db"),
             idle_timeout_ms: 10000,
             retention_days: 7,
         }
