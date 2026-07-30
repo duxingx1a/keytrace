@@ -125,7 +125,7 @@ export const KEYBOARD_LAYOUT: KeyPos[] = [
   { row: 4, col: 18.75, w: 1.0, label: '1',   code: 97 },
   { row: 4, col: 19.75, w: 1.0, label: '2',   code: 98 },
   { row: 4, col: 20.75, w: 1.0, label: '3',   code: 99 },
-  { row: 4, col: 21.75, w: 1.0, h: 2, label: 'Ent', code: 13 },
+  { row: 4, col: 21.75, w: 1.0, h: 2, label: 'Ent', code: 269 },
 
   // ═══ Row 5: Ctrl ~ Ctrl ┃ ← ↓ → ┃ 小键盘 0 . Ent ═══
   { row: 5, col: 0.00,  w: 1.25, label: 'Ctrl', code: 162 },

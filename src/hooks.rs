@@ -185,8 +185,14 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             let kbd_ptr = lparam.0 as *const KBDLLHOOKSTRUCT;
             if !kbd_ptr.is_null() {
                 let kbd = *kbd_ptr;
+                let mut key_code = kbd.vkCode;
+                // LLKHF_EXTENDED (0x01): 区分扩展键（小键盘 Enter 等）
+                // 扩展键的 key_code 加 0x100 偏移，避免与主键盘区同名键冲突
+                if (kbd.flags.0 & 0x01) != 0 {
+                    key_code += 0x100;
+                }
                 send_event(HookEvent::Key(KeyEvent {
-                    key_code: kbd.vkCode,
+                    key_code,
                 }));
             }
         }
