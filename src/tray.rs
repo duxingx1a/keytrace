@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use windows::core::{PCWSTR, w};
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIM_ADD, NIM_DELETE, NIM_MODIFY,
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP,
@@ -11,11 +11,12 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW,
-    MF_CHECKED, MF_STRING, MF_UNCHECKED, PostQuitMessage, RegisterClassW,
-    SetForegroundWindow, TrackPopupMenu, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
-    CW_USEDEFAULT, IDI_APPLICATION, WM_COMMAND, WM_DESTROY,
-    WM_LBUTTONDBLCLK, WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    DestroyMenu, DispatchMessageW, GetCursorPos, GetMenuItemRect, GetMessageW,
+    HMENU, LoadIconW, ModifyMenuW, MF_BYPOSITION, MF_SEPARATOR, MF_STRING,
+    PostQuitMessage, RegisterClassW, SetForegroundWindow,
+    TrackPopupMenu, TPM_BOTTOMALIGN, TPM_LEFTALIGN, CW_USEDEFAULT,
+    IDI_APPLICATION, SW_SHOW, WM_COMMAND, WM_DESTROY, WM_LBUTTONDBLCLK,
+    WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::ShellExecuteW;
@@ -26,6 +27,7 @@ const WM_TRAY: u32 = WM_USER + 100;
 const CMD_OPEN: usize = 1001;
 const CMD_QUIT: usize = 1002;
 const CMD_AUTOSTART: usize = 1003;
+const CMD_ABOUT: usize = 1004;
 
 // 全局 running 标志，供 wnd_proc 在退出时置 false
 static mut RUNNING_FLAG: Option<Arc<AtomicBool>> = None;
@@ -40,28 +42,17 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_TRAY => {
             let event = lparam.0 as u32 & 0xFFFF;
-            if event == WM_RBUTTONUP as u32 || event == WM_LBUTTONDBLCLK as u32 {
+            if event == WM_RBUTTONUP as u32 {
                 handle_tray_menu(hwnd);
+            } else if event == WM_LBUTTONDBLCLK as u32 {
+                open_dashboard();
             }
             LRESULT(0)
         }
         WM_COMMAND => {
             let cmd = wparam.0 as usize;
             if cmd == CMD_OPEN {
-                unsafe {
-                    let port = crate::api::get_actual_port();
-                    let actual = if port > 0 { port } else { 50555 };
-                    let url_str = format!("http://localhost:{}", actual);
-                    let url_wide: Vec<u16> = url_str.encode_utf16().chain(std::iter::once(0)).collect();
-                    let _ = ShellExecuteW(
-                        None,
-                        windows::core::w!("open"),
-                        windows::core::PCWSTR::from_raw(url_wide.as_ptr()),
-                        None,
-                        None,
-                        windows::Win32::UI::WindowsAndMessaging::SW_SHOW,
-                    );
-                }
+                open_dashboard();
             } else if cmd == CMD_AUTOSTART {
                 let enabled = !is_autostart_enabled();
                 set_autostart(enabled);
@@ -161,18 +152,76 @@ fn set_autostart(enable: bool) {
     }
 }
 
+fn open_dashboard() {
+    unsafe {
+        let port = crate::api::get_actual_port();
+        let actual = if port > 0 { port } else { 50555 };
+        let url_str = format!("http://localhost:{}", actual);
+        let url_wide: Vec<u16> = url_str.encode_utf16().chain(std::iter::once(0)).collect();
+        let _ = ShellExecuteW(
+            None,
+            w!("open"),
+            PCWSTR::from_raw(url_wide.as_ptr()),
+            None,
+            None,
+            SW_SHOW,
+        );
+    }
+}
+
 fn handle_tray_menu(hwnd: HWND) {
     unsafe {
         let menu = CreatePopupMenu().unwrap_or_default();
         let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN, w!("打开 Dashboard"));
         let auto_label = if is_autostart_enabled() { w!("✓ 开机自启动") } else { w!("  开机自启动") };
         let _ = AppendMenuW(menu, MF_STRING, CMD_AUTOSTART, auto_label);
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, CMD_QUIT, w!("退出"));
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(menu, MF_STRING, CMD_ABOUT, w!("关于 KeyTrace"));
         let _ = SetForegroundWindow(hwnd);
 
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
+
+        // 悬停检测线程：鼠标悬停在「关于」项上时，菜单文本换成 exe 绝对路径，移开后还原
+        let menu_open = Arc::new(AtomicBool::new(true));
+        let menu_open_hover = menu_open.clone();
+        // HWND/HMENU 是裸指针（非 Send），转 usize 传入线程，在线程内还原
+        let hwnd_val = hwnd.0 as usize;
+        let menu_val = menu.0 as usize;
+        let hover_thread = thread::spawn(move || {
+            let hwnd = HWND(hwnd_val as *mut core::ffi::c_void);
+            let menu = HMENU(menu_val as *mut core::ffi::c_void);
+            let about_pos = 5u32; // 菜单项位置：0=打开 1=自启动 2=分隔 3=退出 4=分隔 5=关于
+            let exe_path = std::env::current_exe()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let mut showing = false;
+            while menu_open_hover.load(Ordering::Relaxed) {
+                let mut rect: RECT = std::mem::zeroed();
+                if GetMenuItemRect(hwnd, menu, about_pos, &mut rect).is_ok() {
+                    let mut cursor = POINT::default();
+                    let _ = GetCursorPos(&mut cursor);
+                    let hover = cursor.x >= rect.left && cursor.x <= rect.right
+                        && cursor.y >= rect.top && cursor.y <= rect.bottom;
+                    if hover && !showing {
+                        let wide: Vec<u16> = exe_path.encode_utf16().chain(std::iter::once(0)).collect();
+                        let _ = ModifyMenuW(menu, about_pos, MF_BYPOSITION | MF_STRING, CMD_ABOUT, PCWSTR::from_raw(wide.as_ptr()));
+                        showing = true;
+                    } else if !hover && showing {
+                        let _ = ModifyMenuW(menu, about_pos, MF_BYPOSITION | MF_STRING, CMD_ABOUT, w!("关于 KeyTrace"));
+                        showing = false;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+
         let _ = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hwnd, None);
+        menu_open.store(false, Ordering::Relaxed);
+        let _ = hover_thread.join();
+
         let _ = DestroyMenu(menu);
     }
 }
