@@ -82,14 +82,15 @@ pub enum HookEvent {
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
 // 缓存屏幕列表，供 mouse_proc 判断坐标所在屏幕
-static mut SCREENS: Vec<ScreenInfo> = Vec::new();
+// 用 Mutex 保护，避免 static mut 的悬垂引用/UB 风险
+static SCREENS: Mutex<Vec<ScreenInfo>> = Mutex::new(Vec::new());
 
-/// 根据坐标找到所在屏幕
-fn find_screen(x: i32, y: i32) -> Option<&'static ScreenInfo> {
-    unsafe {
-        for s in &SCREENS {
+/// 根据坐标找到所在屏幕，返回 (index, width, height)
+fn find_screen(x: i32, y: i32) -> Option<(i32, i32, i32)> {
+    if let Ok(screens) = SCREENS.lock() {
+        for s in screens.iter() {
             if x >= s.left && x < s.right && y >= s.top && y < s.bottom {
-                return Some(s);
+                return Some((s.index, s.width, s.height));
             }
         }
     }
@@ -99,8 +100,8 @@ fn find_screen(x: i32, y: i32) -> Option<&'static ScreenInfo> {
 /// 启动钩子，通过 channel 发送事件，不阻塞系统消息链
 pub fn run_hooks(tx: Sender<HookEvent>) {
     // 枚举屏幕，缓存到 static
-    unsafe {
-        SCREENS = screens::enumerate_screens();
+    if let Ok(mut screens) = SCREENS.lock() {
+        *screens = screens::enumerate_screens();
     }
 
     let instance = HINSTANCE(std::ptr::null_mut());
@@ -124,9 +125,8 @@ pub fn run_hooks(tx: Sender<HookEvent>) {
         CHANNEL = Some(Mutex::new(tx));
     }
 
-    unsafe {
-        HOOK_THREAD_ID.store(GetCurrentThreadId(), Ordering::Relaxed);
-    }
+    let tid = unsafe { GetCurrentThreadId() };
+    HOOK_THREAD_ID.store(tid, Ordering::Relaxed);
 
     let mut msg = MSG::default();
     while RUNNING.load(Ordering::Relaxed) {
@@ -146,11 +146,11 @@ pub fn run_hooks(tx: Sender<HookEvent>) {
     }
 }
 
-static mut HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 
 /// 唤醒钩子线程的消息循环（在退出时调用）
 pub fn wake_hook_thread() {
-    let tid = unsafe { HOOK_THREAD_ID.load(Ordering::Relaxed) };
+    let tid = HOOK_THREAD_ID.load(Ordering::Relaxed);
     if tid != 0 {
         unsafe { let _ = PostThreadMessageW(tid, WM_NULL, WPARAM(0), LPARAM(0)); }
     }
@@ -226,9 +226,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 if now_ms - LAST_MOUSE_TS >= 50 {
                     LAST_MOUSE_TS = now_ms;
                     let screen = find_screen(ms.pt.x, ms.pt.y);
-                    let screen_index = screen.map(|s| s.index).unwrap_or(-1);
-                    let w = screen.map(|s| s.width).unwrap_or(0);
-                    let h = screen.map(|s| s.height).unwrap_or(0);
+                    let (screen_index, w, h) = screen.unwrap_or((-1, 0, 0));
                     send_event(HookEvent::MouseMove(MouseMoveEvent {
                         ts: now_ms,
                         x: ms.pt.x,
@@ -243,9 +241,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 if let Some(button) = btn {
                     let ts = chrono::Local::now().timestamp_millis();
                     let screen = find_screen(ms.pt.x, ms.pt.y);
-                    let screen_index = screen.map(|s| s.index).unwrap_or(-1);
-                    let w = screen.map(|s| s.width).unwrap_or(0);
-                    let h = screen.map(|s| s.height).unwrap_or(0);
+                    let (screen_index, w, h) = screen.unwrap_or((-1, 0, 0));
                     send_event(HookEvent::MouseClick {
                         ts,
                         x: ms.pt.x,

@@ -13,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
     DestroyMenu, DispatchMessageW, GetCursorPos, GetMenuItemRect, GetMessageW,
     HMENU, LoadIconW, ModifyMenuW, MF_BYPOSITION, MF_SEPARATOR, MF_STRING,
-    PostQuitMessage, RegisterClassW, SetForegroundWindow,
+    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow,
     TrackPopupMenu, TPM_BOTTOMALIGN, TPM_LEFTALIGN, CW_USEDEFAULT,
     IDI_APPLICATION, SW_SHOW, WM_COMMAND, WM_DESTROY, WM_LBUTTONDBLCLK,
     WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPEDWINDOW,
@@ -28,6 +28,9 @@ const CMD_OPEN: usize = 1001;
 const CMD_QUIT: usize = 1002;
 const CMD_AUTOSTART: usize = 1003;
 const CMD_ABOUT: usize = 1004;
+
+// explorer 重启后广播的 TaskbarCreated 消息 ID（运行时注册）
+static mut TASKBAR_CREATED_MSG: u32 = 0;
 
 // 全局 running 标志，供 wnd_proc 在退出时置 false
 static mut RUNNING_FLAG: Option<Arc<AtomicBool>> = None;
@@ -47,6 +50,11 @@ unsafe extern "system" fn wnd_proc(
             } else if event == WM_LBUTTONDBLCLK as u32 {
                 open_dashboard();
             }
+            LRESULT(0)
+        }
+        _ if msg == unsafe { TASKBAR_CREATED_MSG } => {
+            // explorer 重启后托盘区被清空，重新注册图标
+            create_tray(hwnd);
             LRESULT(0)
         }
         WM_COMMAND => {
@@ -249,6 +257,11 @@ pub fn start_tray(running: Arc<AtomicBool>) {
         let h_instance: HINSTANCE = unsafe { GetModuleHandleW(None).unwrap().into() };
 
         let class_name = w!("KeyTraceTray");
+
+        // 注册 explorer 重启通知消息（必须在窗口创建前注册）
+        unsafe {
+            TASKBAR_CREATED_MSG = RegisterWindowMessageW(w!("TaskbarCreated"));
+        }
 
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wnd_proc),

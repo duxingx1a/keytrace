@@ -18,8 +18,11 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 use windows::core::w;
 use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK};
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
+use windows::Win32::System::Threading::{OpenProcess, GetExitCodeProcess, PROCESS_QUERY_INFORMATION};
 use windows::Win32::Foundation::CloseHandle;
+
+/// STILL_ACTIVE：进程仍在运行的退出码（259）
+const STILL_ACTIVE: u32 = 259;
 
 /// 退出时自动删除锁文件
 struct LockGuard(std::path::PathBuf);
@@ -30,13 +33,19 @@ impl Drop for LockGuard {
 }
 
 /// 检查 PID 对应的进程是否仍在运行
+/// 用 GetExitCodeProcess 判断：进程已退出时返回非 STILL_ACTIVE 的退出码
+/// （仅用 OpenProcess 不可靠——已死进程可能仍能打开句柄）
 fn is_process_running(pid: u32) -> bool {
     if pid == 0 { return false; }
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_INFORMATION, false, pid);
         if handle.is_err() { return false; }
-        CloseHandle(handle.unwrap());
-        true
+        let handle = handle.unwrap();
+        let mut exit_code: u32 = 0;
+        let ok = GetExitCodeProcess(handle, &mut exit_code).is_ok();
+        let _ = CloseHandle(handle);
+        // 打开失败或退出码不是 STILL_ACTIVE → 进程已死
+        ok && exit_code == STILL_ACTIVE
     }
 }
 
@@ -46,21 +55,37 @@ fn main() {
     let mut _lock_file = None;
     let mut lock_created = false;
 
+    // 尝试以独占方式创建锁文件（create_new：文件已存在则失败）
     if let Ok(f) = std::fs::OpenOptions::new().write(true).create_new(true).open(&lock_path) {
         _lock_file = Some(f);
         lock_created = true;
     } else {
         // 锁文件已存在 — 读取 PID，检查进程是否还活着
+        let mut stale = false;
         if let Ok(content) = std::fs::read_to_string(&lock_path) {
             if let Ok(pid) = content.trim().parse::<u32>() {
                 if !is_process_running(pid) {
-                    // 僵尸锁，覆盖掉
-                    let _ = std::fs::remove_file(&lock_path);
-                    if let Ok(f) = std::fs::OpenOptions::new().write(true).create_new(true).open(&lock_path) {
-                        _lock_file = Some(f);
-                        lock_created = true;
-                    }
+                    stale = true;
                 }
+            } else {
+                // 内容不是合法 PID，视为僵尸锁
+                stale = true;
+            }
+        } else {
+            // 读不到内容，视为僵尸锁
+            stale = true;
+        }
+
+        if stale {
+            // 僵尸锁：直接覆盖写入（truncate），避免「先删再建」的竞态
+            if let Ok(f) = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&lock_path)
+            {
+                _lock_file = Some(f);
+                lock_created = true;
             }
         }
     }
